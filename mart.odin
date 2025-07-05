@@ -6,12 +6,12 @@ import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:sort"
+import "core:strings"
 
 Options :: struct {
 	// TODO: make this a string and parse it manually (current defaults to
 	// stdout
 	log_file: os.Handle `args:"file=rwct,perms=644"`,
-	log_file_set: bool,
 	strats: [dynamic]Strategy `args:"name=strategy,required=4<5"`,
 }
 
@@ -140,15 +140,28 @@ opt_parser :: proc (
 	if data_type == Strategy {
 		handled = true
 		ptr := cast(^Strategy) data
+		first := true
+		msg, _ := strings.builder_make()
+		strings.write_string(&msg, "Unknown strategy.")
 		for s in strategies {
 			if stream == s.name {
 				ptr^ = s.value
+				strings.builder_destroy(&msg)
 				return
 			}
+
+			if first {
+				strings.write_string(&msg, " Must be one of ")
+				first = false
+			} else {
+				strings.write_string(&msg, ", ")
+			}
+			strings.write_byte(&msg, '`')
+			strings.write_string(&msg, s.name)
+			strings.write_byte(&msg, '`')
 		}
 
-		// TODO: list strats in msg
-		error = "Unknown strategy. Must be one of TODO: list strats"
+		error = strings.to_string(msg)
 	}
 
 	return
