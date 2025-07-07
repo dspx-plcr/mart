@@ -9,9 +9,8 @@ import "core:sort"
 import "core:strings"
 
 Options :: struct {
-	// TODO: make this a string and parse it manually (current defaults to
-	// stdout
-	log_file: os.Handle `args:"file=rwct,perms=644"`,
+	log_path: string `args:"name=log"`,
+	logger: runtime.Logger `args:"hidden"`,
 	strats: [dynamic]Strategy `args:"name=strategy,required=4<5"`,
 }
 
@@ -173,6 +172,31 @@ opt_validator :: proc (
 	value: any,
 	arg_tags: string,
 ) -> (error: string) {
+	opts := cast(^Options) model
+	if name == "log_path" {
+		v := value.(string)
+		if v == "" {
+			opts.logger = log.nil_logger()
+			return
+		}
+
+		fd: os.Handle
+		if v == "-" {
+			fd = os.stdin
+		} else {
+			handle, err := os.open(v,
+				flags = os.O_CREATE | os.O_RDWR | os.O_TRUNC,
+				mode = 0o664)
+			if err != os.ERROR_NONE {
+				return "couldn't open log file"
+			}
+			fd = handle
+		}
+
+		log_opts := bit_set[runtime.Logger_Option] { .Level }
+		opts.logger = log.create_file_logger(fd, opt = log_opts)
+	}
+
 	return
 }
 
@@ -181,21 +205,10 @@ main :: proc() {
 	flags.register_type_setter(opt_parser)
 	flags.register_flag_checker(opt_validator)
 	flags.parse_or_exit(&opts, os.args, .Odin)
-
-	logger: runtime.Logger
-	if true {
-		log_opts := bit_set[runtime.Logger_Option] { .Level }
-		logger = log.create_file_logger(opts.log_file, opt = log_opts)
-	} else {
-		logger = log.nil_logger()
-	}
-	context.logger = logger
-	defer if true {
-		log.destroy_file_logger(logger)
-		os.close(opts.log_file)
-	}
+	defer if opts.log_path != "" do log.destroy_file_logger(opts.logger)
 
 	// TODO: remove this and do actual stats
+	context.logger = opts.logger
 	wins := make([]uint, len(opts.strats))
 	for i in 1..=1000 {
 		setup_game(mart_conf, opts.strats[:]);
