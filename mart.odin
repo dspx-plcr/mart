@@ -11,6 +11,7 @@ import "core:strings"
 Options :: struct {
 	log_path: string `args:"name=log"`,
 	logger: runtime.Logger `args:"hidden"`,
+	n: uint,
 	strats: [dynamic]Strategy `args:"name=strategy,required=4<5"`,
 }
 
@@ -210,7 +211,7 @@ main :: proc() {
 	// TODO: remove this and do actual stats
 	context.logger = opts.logger
 	wins := make([]uint, len(opts.strats))
-	for i in 1..=1000 {
+	for i in 1..=opts.n {
 		setup_game(mart_conf, opts.strats[:]);
 		play_game()
 		sort.merge_sort_proc(state.players, proc(p, q: Player) -> int {
