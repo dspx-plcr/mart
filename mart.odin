@@ -85,6 +85,7 @@ Event :: union {
 
 state: struct {
 	deck: []Card,
+	id_to_deck_pos: []uint,
 	pos: uint,
 	round: uint,
 	auctioneer: uint,
@@ -111,20 +112,14 @@ card_str :: proc(card_id: uint) -> string {
 	if card_id >= len(state.deck) {
 		return fmt.aprintf("<<invalid id %d>>", card_id)
 	}
-	card := state.deck[card_id]
+	card := state.deck[state.id_to_deck_pos[card_id]]
 	return fmt.aprintf("%d %s (%s)", card_id,
 		state.artists[card.artist].name, auction_names[card.type])
 }
 
-// TODO: make this robust against querying cards that aren't ours
 get_card :: proc(card_id: uint) -> Card {
-	for c in state.deck {
-		if c.id == card_id {
-			return c
-		}
-	}
-
-	return Card{}
+	if card_id >= len(state.deck) do return Card{}
+	return state.deck[state.id_to_deck_pos[card_id]]
 }
 
 opt_parser :: proc (
@@ -183,7 +178,7 @@ opt_validator :: proc (
 
 		fd: os.Handle
 		if v == "-" {
-			fd = os.stdin
+			fd = os.stdout
 		} else {
 			handle, err := os.open(v,
 				flags = os.O_CREATE | os.O_RDWR | os.O_TRUNC,
@@ -207,9 +202,8 @@ main :: proc() {
 	flags.register_flag_checker(opt_validator)
 	flags.parse_or_exit(&opts, os.args, .Odin)
 	defer if opts.log_path != "" do log.destroy_file_logger(opts.logger)
-
-	// TODO: remove this and do actual stats
 	context.logger = opts.logger
+	
 	wins := make([]uint, len(opts.strats))
 	for i in 1..=opts.n {
 		setup_game(mart_conf, opts.strats[:]);
@@ -220,8 +214,6 @@ main :: proc() {
 
 		winner := state.players[0]
 		wins[winner.id] += 1
-		fmt.printfln("%d,%d,%d", winner.id, winner.money,
-			winner.money - state.players[1].money)
 		packup_game()
 	}
 
