@@ -32,13 +32,24 @@
              ;(map |(string "-strategy:" $) strats)]
            :x {:out (get pipe 1) :err :pipe})
       ([msg _] (error {:id id :err-type :spawn :err-msg msg}))))
-  (ev/sleep 0)
-  (os/proc-close proc)
-  (ev/close (get pipe 1))
 
-  (each msg (string/split "\n" (ev/read (get pipe 0) :all))
-    (process-message msg))
-  (ev/close (get pipe 0)))
+  (def buf (buffer/new 1024))
+  (var prev "")
+  (while (-?>>
+    (try (ev/read (get pipe 0) 1024 buf 0)
+      ([msg _] (case msg
+         "timeout" ""
+         _  (error {:id id :err-type :read :err-msg msg}))))
+    (string prev)
+    (string/split "\n")
+    |(tuple ;$)
+    |(do (set prev (last $)) (tuple/slice $ 0 -2))
+    |(each msg $ (process-message msg))))
+  (if (not (empty? prev))
+    (process-message prev))
+  (os/proc-close proc)
+  (ev/close (first pipe))
+  (ev/close (last pipe)))
 
 (cmd/main (cmd/fn
   [[num-games --n -n] (optional :int+ 100)
