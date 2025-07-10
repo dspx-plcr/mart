@@ -1,6 +1,7 @@
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <sys/wait.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -9,6 +10,7 @@
 
 #define ARR_SZ(x) (sizeof(x)/sizeof((x)[0]))
 #define	N_STRATS (ARR_SZ(all_strats))
+#define NUM_FDS (N_STRATS*N_STRATS*N_STRATS*N_STRATS)
 
 static const char *all_strats[] = {
 	"Expected Return",
@@ -131,32 +133,44 @@ int
 main(void)
 {
 	size_t i, j, k, l;
-	int fds[N_STRATS*N_STRATS*N_STRATS*N_STRATS];
+	struct pollfd pfds[NUM_FDS];
+	nfds_t numfds = NUM_FDS;
 	size_t pos = 0;
 
 	for (i = 0; i < N_STRATS; i++)
 		for (j = 0; j < N_STRATS; j++)
 			for (k = 0; k < N_STRATS; k++)
-				for (l = 0; l < N_STRATS; l++)
-					fds[pos++] = run_process(i, j, k, l);
+				for (l = 0; l < N_STRATS; l++) {
+					pfds[pos].fd = run_process(i, j, k, l);
+					pfds[pos].events = POLLPRI | POLLIN;
+					pos++;
+				}
 
 
-	while (1) {
-		char waiting = 0;
-		for (i = 0; i < ARR_SZ(fds); i++) {
+	while (numfds > 0) {
+		int n = poll(pfds, numfds, -1);
+		if (n == 0) continue;
+		if (n < -1) err(1, "couldn't poll fds");
+
+		for (i = 0; i < numfds; i++) {
 			ssize_t num;
-			char buf[80];
+			char buf[1024];
 
-			num = read(fds[i], buf, ARR_SZ(buf));
+			if (pfds[i].revents & POLLERR)
+				err(1, "couldn't poll buf"); 
+			num = read(pfds[i].fd, buf, ARR_SZ(buf));
 			if (num < 0 && errno != EAGAIN)
 				err(1, "couldn't read from fd");
-			if (num)
-				waiting = 1;
+			if (num < 0) continue;
+			if (!num) {
+				if (i + 1 < numfds)
+					memmove(pfds+i, pfds+i+1, numfds-i);
+				numfds--;
+				i--;
+				continue;
+			}
 			write(1, buf, num);
 			fflush(stdout);
 		}
-
-		if (!waiting)
-			break;
 	}
 }

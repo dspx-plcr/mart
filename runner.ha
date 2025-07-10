@@ -6,6 +6,7 @@ use os;
 use os::exec;
 use strings;
 use unix;
+use unix::poll;
 
 def N_STRATS: size = len(allstrats);
 def allstrats: [_]str = [
@@ -96,7 +97,7 @@ fn runproces(i: size, j: size, k: size, l: size) io::file = {
 	match (os::setflags(rd, fs::flag::NONBLOCK)) {
 		case void => yield;
 		case let e: errors::error => fmt::fatalf(
-			"couldn't make pipe non blocking: {}",
+			"couldn't set pipe as non-blocking: {}",
 			errors::strerror(e));
 	};
 
@@ -116,32 +117,52 @@ fn runproces(i: size, j: size, k: size, l: size) io::file = {
 };
 
 export fn main() void = {
-	let fds: [N_STRATS*N_STRATS*N_STRATS*N_STRATS]io::file = [0...];
+	def NUM_FDS: size = N_STRATS*N_STRATS*N_STRATS*N_STRATS;
+	def evs: i16 = poll::event::POLLIN | poll::event::POLLPRI;
+	let pfds: [NUM_FDS]poll::pollfd = [poll::pollfd{...}...];
+	let numfds = NUM_FDS;
 	let pos = 0z;
 	for (let i = 0z; i < N_STRATS; i += 1)
 		for (let j = 0z; j < N_STRATS; j += 1)
 			for (let k = 0z; k < N_STRATS; k += 1)
 				for (let l = 0z; l < N_STRATS; l += 1) {
-					fds[pos] = runproces(i, j, k, l);
+					pfds[pos] = poll::pollfd {
+						fd = runproces(i, j, k, l),
+						events = evs,
+						revents = 0,
+					};
 					pos += 1;
 				};
 
-	for (true) {
-		let waiting = false;
-		for (let fd .. fds) {
+	for (numfds > 0) {
+		match (poll::poll(pfds[..numfds])) {
+			case let e: poll::error => fmt::fatalf(
+				"couldn't poll fds: {}", poll::strerror(e));
+			case let n: uint => if (n == 0) continue;
+		};
+
+		for (let i = 0z; i < numfds; i += 1) {
+			const pfd = pfds[i];
+			const evs = pfd.revents;
+			if (evs & poll::event::POLLERR != 0)
+				fmt::fatal("couldn't poll bufs: unknown error");
+
 			static let buf: [1024]u8 = [0...];
-			const n = match (io::read(fd, buf)) {
-				case let n: size => waiting = true; yield n;
-				case io::EOF => yield 0z;
-				case errors::again => yield 0z;
+			const n: size = match (io::read(pfd.fd, buf)) {
+				case let n: size => yield n;
+				case errors::again => yield 0;
+				case io::EOF =>
+					if (i + 1 < numfds)
+						pfds[i..numfds-1] =
+							pfds[i+1..numfds];
+					i -= 1;
+					numfds -= 1;
+					continue;
 				case let e: io::error => fmt::fatalf(
 					"couldn't read from buf: {}",
 					io::strerror(e));
 			};
 			io::write(os::stdout, buf[..n]): void;
 		};
-
-		if (!waiting)
-			break;
 	};
 };
