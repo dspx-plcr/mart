@@ -90,7 +90,7 @@ run_process(size_t s1, size_t s2, size_t s3, size_t s4)
 		"-strategy:",
 		"-strategy:",
 		"-log:logs/",
-		"-n:10",
+		"-n:100",
 		NULL
 	};
 
