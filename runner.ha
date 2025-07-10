@@ -1,9 +1,11 @@
 use errors;
 use fmt;
 use fs;
+use getopt;
 use io;
 use os;
 use os::exec;
+use strconv;
 use strings;
 use unix;
 use unix::poll;
@@ -14,6 +16,8 @@ def allstrats: [_]str = [
 	"First Card, All In",
 	"Random",
 ];
+
+let numgames: size = 0;
 
 fn gamename(i: size, j: size, k: size, l: size) str = {
 	static let maxlen = 0z;
@@ -51,7 +55,7 @@ fn gamename(i: size, j: size, k: size, l: size) str = {
 	return res;
 };
 
-fn runproces(i: size, j: size, k: size, l: size) io::file = {
+fn runprocess(i: size, j: size, k: size, l: size) io::file = {
 	const s1 = match (strings::concat("-strategy:", allstrats[i])) {
 		case nomem => fmt::fatal("couldn't alloc strategy: nomem");
 		case let s: str => yield s;
@@ -78,9 +82,14 @@ fn runproces(i: size, j: size, k: size, l: size) io::file = {
 		case let s: str => yield s;
 	};
 	defer free(log);
+	const n = match (fmt::asprintf("-n:{}", numgames)) {
+		case nomem => fmt::fatal("couldn't alloc num games: nomem");
+		case let s: str => yield s;
+	};
+	defer free(n);
 
-	const cmd = match (exec::cmd("./mart", "-n:100",
-			s1, s2, s3, s4, log)) {
+	const cmd = match (exec::cmd("./mart", n, log,
+			s1, s2, s3, s4)) {
 		case let cmd: exec::command => yield cmd;
 		case nomem => fmt::fatal("couldn't create command: no memory");
 		case let e: exec::error =>
@@ -117,6 +126,27 @@ fn runproces(i: size, j: size, k: size, l: size) io::file = {
 };
 
 export fn main() void = {
+	const cmd = getopt::parse(os::args,
+		"modert art of command runners",
+		('n', "num", "number of games for each pairing"),
+		('e', "strategy", "strategy to exclude from the pairings"),
+	);
+	defer getopt::finish(&cmd);
+
+	for (let opt .. cmd.opts) {
+		switch (opt.0) {
+		case 'n' => numgames = match (strconv::stoz(opt.1)) {
+			case let n: size => yield n;
+			case let e: strconv::error =>
+				fmt::fatalf("could not parse -n {}: ",
+					strconv::strerror(e));
+			};
+			fmt::errorf("numgames: {}", numgames): void;
+		case 'e' => fmt::fatal("internal error: unimplemented -e flag");
+		case => fmt::fatal("internal error: unknown opt");
+		};
+	};
+
 	def NUM_FDS: size = N_STRATS*N_STRATS*N_STRATS*N_STRATS;
 	def evs: i16 = poll::event::POLLIN | poll::event::POLLPRI;
 	let pfds: [NUM_FDS]poll::pollfd = [poll::pollfd{...}...];
@@ -127,7 +157,7 @@ export fn main() void = {
 			for (let k = 0z; k < N_STRATS; k += 1)
 				for (let l = 0z; l < N_STRATS; l += 1) {
 					pfds[pos] = poll::pollfd {
-						fd = runproces(i, j, k, l),
+						fd = runprocess(i, j, k, l),
 						events = evs,
 						revents = 0,
 					};
