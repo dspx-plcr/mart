@@ -1,3 +1,7 @@
 logs/
+logs-*/
+output-*/
+build/
+jpm_tree/
 mart
 runner

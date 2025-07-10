@@ -8,4 +8,4 @@
 
 (declare-executable
   :name "runner"
-  :entry "main.janet")
+  :entry "runner.janet")
