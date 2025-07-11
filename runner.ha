@@ -10,8 +10,7 @@ use strings;
 use unix;
 use unix::poll;
 
-def N_STRATS: size = len(allstrats);
-def allstrats: [_]str = [
+let allstrats: [_]str = [
 	"Expected Return",
 	"First Card, All In",
 	"Random",
@@ -133,45 +132,73 @@ export fn main() void = {
 	);
 	defer getopt::finish(&cmd);
 
+	let excluded: []str = [];
 	for (let opt .. cmd.opts) {
 		switch (opt.0) {
 		case 'n' => numgames = match (strconv::stoz(opt.1)) {
 			case let n: size => yield n;
 			case let e: strconv::error =>
-				fmt::fatalf("could not parse -n {}: ",
+				fmt::fatalf("couldn't parse -n {}: ",
 					strconv::strerror(e));
 			};
-			fmt::errorf("numgames: {}", numgames): void;
-		case 'e' => fmt::fatal("internal error: unimplemented -e flag");
+		case 'e' => match (append(excluded, opt.1)) {
+			case void => yield;
+			case nomem => fmt::fatalf(
+				"couldn't record excluded strat {}: no memory",
+				opt.1);
+			};
 		case => fmt::fatal("internal error: unknown opt");
 		};
 	};
 
-	def NUM_FDS: size = N_STRATS*N_STRATS*N_STRATS*N_STRATS;
+	let numstrats: size = len(allstrats);
+	for (let s .. excluded) {
+		let found = false;
+		for (let i = 0z; i < numstrats; i += 1)
+			if (s == allstrats[i]) {
+				found = true;
+				allstrats[i] = allstrats[numstrats-1];
+				numstrats -=1;
+				break;
+			};
+		if (!found)
+			fmt::errorf(
+				"unrecognised excluded strategy: {}", s): void;	
+	};
+	for (let i = 0z; i < numstrats; i += 1)
+		for (let s .. excluded)
+			if (s == allstrats[i]) {
+				allstrats[i] = allstrats[numstrats-1];
+				i -= 1;
+				numstrats -= 1;
+			};
+
+	const numfds: size = numstrats*numstrats*numstrats*numstrats;
 	def evs: i16 = poll::event::POLLIN | poll::event::POLLPRI;
-	let pfds: [NUM_FDS]poll::pollfd = [poll::pollfd{...}...];
-	let numfds = NUM_FDS;
-	let pos = 0z;
-	for (let i = 0z; i < N_STRATS; i += 1)
-		for (let j = 0z; j < N_STRATS; j += 1)
-			for (let k = 0z; k < N_STRATS; k += 1)
-				for (let l = 0z; l < N_STRATS; l += 1) {
-					pfds[pos] = poll::pollfd {
+	let pfds: []poll::pollfd = match (alloc([]: []poll::pollfd, numfds)) {
+		case let ps: []poll::pollfd => yield ps;
+		case nomem => fmt::fatal("couldn't alloc for fds: nomem");
+	};
+	defer free(pfds);
+	for (let i = 0z; i < numstrats; i += 1)
+		for (let j = 0z; j < numstrats; j += 1)
+			for (let k = 0z; k < numstrats; k += 1)
+				for (let l = 0z; l < numstrats; l += 1) {
+					append(pfds, poll::pollfd {
 						fd = runprocess(i, j, k, l),
 						events = evs,
 						revents = 0,
-					};
-					pos += 1;
+					}): void;
 				};
 
-	for (numfds > 0) {
-		match (poll::poll(pfds[..numfds])) {
+	for (len(pfds) > 0) {
+		match (poll::poll(pfds)) {
 			case let e: poll::error => fmt::fatalf(
 				"couldn't poll fds: {}", poll::strerror(e));
 			case let n: uint => if (n == 0) continue;
 		};
 
-		for (let i = 0z; i < numfds; i += 1) {
+		for (let i = 0z; i < len(pfds); i += 1) {
 			const pfd = pfds[i];
 			const evs = pfd.revents;
 			if (evs & poll::event::POLLERR != 0)
@@ -182,11 +209,8 @@ export fn main() void = {
 				case let n: size => yield n;
 				case errors::again => yield 0;
 				case io::EOF =>
-					if (i + 1 < numfds)
-						pfds[i..numfds-1] =
-							pfds[i+1..numfds];
+					delete(pfds[i]);
 					i -= 1;
-					numfds -= 1;
 					continue;
 				case let e: io::error => fmt::fatalf(
 					"couldn't read from buf: {}",
