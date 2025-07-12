@@ -124,7 +124,11 @@ fn runprocess(i: size, j: size, k: size, l: size) io::file = {
 	return rd;
 };
 
+@symbol("st_plot") fn st_plot() int;
 export fn main() void = {
+	if (st_plot() < 0)
+		fmt::fatal("couldn't plot");
+
 	const cmd = getopt::parse(os::args,
 		"modert art of command runners",
 		('n', "num", "number of games for each pairing"),
