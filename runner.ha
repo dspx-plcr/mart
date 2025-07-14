@@ -7,6 +7,8 @@ use os;
 use os::exec;
 use strconv;
 use strings;
+use types;
+use types::c;
 use unix;
 use unix::poll;
 
@@ -18,35 +20,35 @@ let allstrats: [_]str = [
 
 let numgames: size = 0;
 
-fn gamename(i: size, j: size, k: size, l: size) str = {
+fn gamename(s1: const str, s2: const str, s3: const str, s4: const str) str = {
 	static let maxlen = 0z;
 	if (maxlen == 0)
 		for (let s .. allstrats)
 			if (len(s) > maxlen)
 				maxlen = len(s);
 
-	const s1 = match (strings::rpad(allstrats[i], ' ', maxlen)) {
+	const pads1 = match (strings::rpad(s1, ' ', maxlen)) {
 		case nomem => fmt::fatal("couldn't allocate game name: nomem");
 		case let s: str => yield s;
 	};
-	defer free(s1);
-	const s2 = match (strings::rpad(allstrats[j], ' ', maxlen)) {
+	defer free(pads1);
+	const pads2 = match (strings::rpad(s2, ' ', maxlen)) {
 		case nomem => fmt::fatal("couldn't allocate game name: nomem");
 		case let s: str => yield s;
 	};
-	defer free(s2);
-	const s3 = match (strings::rpad(allstrats[k], ' ', maxlen)) {
+	defer free(pads2);
+	const pads3 = match (strings::rpad(s3, ' ', maxlen)) {
 		case nomem => fmt::fatal("couldn't allocate game name: nomem");
 		case let s: str => yield s;
 	};
-	defer free(s3);
-	const s4 = match (strings::rpad(allstrats[l], ' ', maxlen)) {
+	defer free(pads3);
+	const pads4 = match (strings::rpad(s4, ' ', maxlen)) {
 		case nomem => fmt::fatal("couldn't allocate game name: nomem");
 		case let s: str => yield s;
 	};
-	defer free(s4);
+	defer free(pads4);
 
-	const res = match (strings::join(" | ", s1, s2, s3, s4)) {
+	const res = match (strings::join(" | ", pads1, pads2, pads3, pads4)) {
 		case nomem => fmt::fatal("couldn't allocate game name: nomem");
 		case let s: str => yield s;
 	};
@@ -54,29 +56,34 @@ fn gamename(i: size, j: size, k: size, l: size) str = {
 	return res;
 };
 
-fn runprocess(i: size, j: size, k: size, l: size) io::file = {
-	const s1 = match (strings::concat("-strategy:", allstrats[i])) {
+fn runprocess(
+	gname: const str,
+	s1: const str,
+	s2: const str,
+	s3: const str,
+	s4: const str,
+) io::file = {
+	const args1 = match (strings::concat("-strategy:", s1)) {
 		case nomem => fmt::fatal("couldn't alloc strategy: nomem");
 		case let s: str => yield s;
 	};
-	defer free(s1);
-	const s2 = match (strings::concat("-strategy:", allstrats[j])) {
+	defer free(args1);
+	const args2 = match (strings::concat("-strategy:", s2)) {
 		case nomem => fmt::fatal("couldn't alloc strategy: nomem");
 		case let s: str => yield s;
 	};
-	defer free(s2);
-	const s3 = match (strings::concat("-strategy:", allstrats[k])) {
+	defer free(args2);
+	const args3 = match (strings::concat("-strategy:", s3)) {
 		case nomem => fmt::fatal("couldn't alloc strategy: nomem");
 		case let s: str => yield s;
 	};
-	defer free(s3);
-	const s4 = match (strings::concat("-strategy:", allstrats[l])) {
+	defer free(args3);
+	const args4 = match (strings::concat("-strategy:", s4)) {
 		case nomem => fmt::fatal("couldn't alloc strategy: nomem");
 		case let s: str => yield s;
 	};
-	defer free(s4);
-	const log = match (strings::concat("-log:logs/",
-			gamename(i, j, k, l))) {
+	defer free(args4);
+	const log = match (strings::concat("-log:logs/", gname)) {
 		case nomem => fmt::fatal("couldn't alloc strategy: nomem");
 		case let s: str => yield s;
 	};
@@ -88,7 +95,7 @@ fn runprocess(i: size, j: size, k: size, l: size) io::file = {
 	defer free(n);
 
 	const cmd = match (exec::cmd("./mart", n, log,
-			s1, s2, s3, s4)) {
+			args1, args2, args3, args4)) {
 		case let cmd: exec::command => yield cmd;
 		case nomem => fmt::fatal("couldn't create command: no memory");
 		case let e: exec::error =>
@@ -124,11 +131,11 @@ fn runprocess(i: size, j: size, k: size, l: size) io::file = {
 	return rd;
 };
 
-@symbol("st_plot") fn st_plot() int;
+type stats = opaque;
+@symbol("st_plot") fn stats_plot(*stats) int;
+@symbol("st_new") fn newstats(const *c::char) nullable *stats;
+@symbol("st_input") fn stats_input(*stats, []u8, size) int;
 export fn main() void = {
-	if (st_plot() < 0)
-		fmt::fatal("couldn't plot");
-
 	const cmd = getopt::parse(os::args,
 		"modert art of command runners",
 		('n', "num", "number of games for each pairing"),
@@ -179,21 +186,50 @@ export fn main() void = {
 
 	const numfds: size = numstrats*numstrats*numstrats*numstrats;
 	def evs: i16 = poll::event::POLLIN | poll::event::POLLPRI;
-	let pfds: []poll::pollfd = match (alloc([]: []poll::pollfd, numfds)) {
+	let pfds = match (alloc([]: []poll::pollfd, numfds)) {
 		case let ps: []poll::pollfd => yield ps;
 		case nomem => fmt::fatal("couldn't alloc for fds: nomem");
 	};
+	let sts = match (alloc([]: []*stats, numfds)) {
+		case let ss: []*stats => yield ss;
+		case nomem => fmt::fatal("couldn't alloc for stats: nomem");
+	};
+	let pfdtost = match (alloc([]: []size, numfds)) {
+		case let ps: []size => yield ps;
+		case nomem => fmt::fatal("couldn't alloc for mapping: nomem");
+	};
 	defer free(pfds);
-	for (let i = 0z; i < numstrats; i += 1)
-		for (let j = 0z; j < numstrats; j += 1)
-			for (let k = 0z; k < numstrats; k += 1)
-				for (let l = 0z; l < numstrats; l += 1) {
-					append(pfds, poll::pollfd {
-						fd = runprocess(i, j, k, l),
-						events = evs,
-						revents = 0,
-					}): void;
-				};
+
+	const ns2 = numstrats * numstrats;
+	const ns3 = ns2 * numstrats;
+	for (let n = 0z; n < numfds; n += 1) {
+		let l: size = n % numstrats;
+		let k: size = (n / numstrats) % numstrats;
+		let j: size = (n / ns2) % numstrats;
+		let i: size = (n / ns3) % numstrats;
+
+		const s1 = allstrats[i];
+		const s2 = allstrats[j];
+		const s3 = allstrats[k];
+		const s4 = allstrats[l];
+		const gname = gamename(s1, s2, s3, s4);
+		let name = match (fmt::asprintf("out/{}.svg\0", gname)) {
+			case nomem => fmt::fatal(
+				"couldn't alloc for game name: nomem");
+			case let gn: str => yield gn;
+		};
+
+		append(pfds, poll::pollfd {
+			fd = runprocess(gname, s1, s2, s3, s4),
+			events = evs,
+			revents = 0,
+		}): void;
+		append(pfdtost, n): void;
+		append(sts, match (newstats(c::nulstr(name))) {
+			case null => fmt::fatal("couldn't alloc stats: nomem");
+			case let s: *stats => yield s;
+		}): void;
+	};
 
 	for (len(pfds) > 0) {
 		match (poll::poll(pfds)) {
@@ -211,16 +247,29 @@ export fn main() void = {
 			static let buf: [1024]u8 = [0...];
 			const n: size = match (io::read(pfd.fd, buf)) {
 				case let n: size => yield n;
-				case errors::again => yield 0;
+				case errors::again => continue;
 				case io::EOF =>
 					delete(pfds[i]);
+					delete(pfdtost[i]);
 					i -= 1;
 					continue;
 				case let e: io::error => fmt::fatalf(
 					"couldn't read from buf: {}",
 					io::strerror(e));
 			};
-			io::write(os::stdout, buf[..n]): void;
+
+			const st = sts[pfdtost[i]];
+			const c = stats_input(st, buf[0..n], n);
+			switch (c) {
+			case 0 => void;
+			case => fmt::fatalf(
+				"failed to update stats with `{}`",
+				c);
+				//strings::fromutf8_unsafe(buf[..n]));
+			};
 		};
 	};
+
+	for (let s .. sts)
+		stats_plot(s);
 };

@@ -19,4 +19,4 @@ mart: $(MART_SRC)
 clean:
 	hare cache -c
 	rm -f *.o libstats.a
-	rm -rf logs runner mart
+	rm -rf logs runner mart out
