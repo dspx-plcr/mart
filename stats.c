@@ -71,17 +71,9 @@ exit:
 	return 0;
 }
 
-/* TODO: We don't want this guy */
-struct hare_slice {
-	const char *data;
-	size_t len;
-	size_t cap;
-};
-
 int
-st_input(struct stats *st, struct hare_slice slice, size_t size)
+st_input(struct stats *st, const char *buf, size_t size)
 {
-	const char *buf = slice.data;
 	const char *ptr;
 
 	while (size > 0) {

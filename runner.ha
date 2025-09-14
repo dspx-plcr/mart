@@ -134,7 +134,7 @@ fn runprocess(
 type stats = opaque;
 @symbol("st_plot") fn stats_plot(*stats) int;
 @symbol("st_new") fn newstats(const *c::char) nullable *stats;
-@symbol("st_input") fn stats_input(*stats, []u8, size) int;
+@symbol("st_input") fn stats_input(*stats, nullable *const u8, size) int;
 export fn main() void = {
 	const cmd = getopt::parse(os::args,
 		"modert art of command runners",
@@ -259,7 +259,7 @@ export fn main() void = {
 			};
 
 			const st = sts[pfdtost[i]];
-			const c = stats_input(st, buf[0..n], n);
+			const c = stats_input(st, &buf[0], n);
 			switch (c) {
 			case 0 => void;
 			case => fmt::fatalf(
